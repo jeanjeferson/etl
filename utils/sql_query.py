@@ -291,6 +291,128 @@ class SQLQuery:
         
         return stats
     
+    def execute_queries_for_database(self, database: str, output_dir: str = "data") -> Dict[str, any]:
+        """
+        Executa todas as queries SQL para um database específico.
+        Salva os resultados como arquivos parquet em data/{database}/ folder.
+        
+        Args:
+            database: Nome do database para executar as queries
+            output_dir: Diretório base para salvar os arquivos (padrão: 'data')
+            
+        Returns:
+            Dicionário com estatísticas de execução e erros
+        """
+        print("=" * 80)
+        print(f"🚀 Iniciando execução de queries no database: {database}")
+        print("=" * 80)
+        
+        # Validar se database existe na configuração
+        databases = self.config.get('databases', [])
+        if database not in databases:
+            print(f"❌ Database '{database}' não encontrado na configuração")
+            print(f"   Databases disponíveis: {', '.join(databases)}")
+            return {
+                "success": False, 
+                "error": f"Database '{database}' not configured",
+                "available_databases": databases
+            }
+        
+        # Carregar arquivos SQL
+        sql_files = self._load_sql_files()
+        if not sql_files:
+            print("❌ Nenhum arquivo SQL encontrado na pasta sql/")
+            return {"success": False, "error": "No SQL files found"}
+        
+        print(f"\n📊 Total de queries a executar: {len(sql_files)}")
+        print(f"   Arquivos: {', '.join(sql_files.keys())}")
+        print(f"🗄️  Database: {database}")
+        
+        # Criar diretório para o database
+        db_output_dir = Path(output_dir) / database
+        db_output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Estatísticas
+        stats = {
+            "database": database,
+            "total_executions": 0,
+            "successful": 0,
+            "failed": 0,
+            "errors": [],
+            "details": []
+        }
+        
+        start_time = time.perf_counter()
+        
+        # Iterar sobre cada query SQL
+        for query_index, (query_name, query_content) in enumerate(sql_files.items(), 1):
+            stats["total_executions"] += 1
+            
+            print(f"\n[{query_index}/{len(sql_files)}] Executando: {query_name}.sql")
+            
+            try:
+                # Executar query
+                query_start = time.perf_counter()
+                df = self._execute_query(database, query_content)
+                query_elapsed = time.perf_counter() - query_start
+                
+                if df.empty:
+                    print(f"  ⚠️  Query retornou 0 linhas - salvando arquivo vazio")
+                
+                # Salvar como parquet
+                output_file = db_output_dir / f"{query_name}.parquet"
+                df.to_parquet(output_file, index=False, engine='pyarrow')
+                
+                file_size = output_file.stat().st_size / 1024  # KB
+                
+                print(f"  ✅ Salvo: {output_file}")
+                print(f"     📈 Linhas: {len(df):,} | Colunas: {len(df.columns)} | Tamanho: {file_size:.1f} KB | Tempo: {query_elapsed:.2f}s")
+                
+                stats["successful"] += 1
+                stats["details"].append({
+                    "query": query_name,
+                    "rows": len(df),
+                    "cols": len(df.columns),
+                    "time": query_elapsed,
+                    "status": "success"
+                })
+                
+            except Exception as e:
+                error_msg = f"Query: {query_name}.sql, Error: {str(e)}"
+                print(f"  ❌ Erro: {str(e)}")
+                
+                stats["failed"] += 1
+                stats["errors"].append(error_msg)
+                stats["details"].append({
+                    "query": query_name,
+                    "status": "failed",
+                    "error": str(e)
+                })
+        
+        total_elapsed = time.perf_counter() - start_time
+        
+        # Sumário final
+        print(f"\n{'=' * 80}")
+        print("📊 SUMÁRIO DA EXECUÇÃO")
+        print(f"{'=' * 80}")
+        print(f"🗄️  Database: {database}")
+        print(f"✅ Sucesso: {stats['successful']}/{stats['total_executions']}")
+        print(f"❌ Falhas: {stats['failed']}/{stats['total_executions']}")
+        print(f"⏱️  Tempo total: {total_elapsed:.2f}s")
+        print(f"📁 Diretório de saída: {db_output_dir.absolute()}")
+        
+        if stats['errors']:
+            print(f"\n⚠️  Erros encontrados:")
+            for error in stats['errors']:
+                print(f"   - {error}")
+        
+        print(f"\n{'=' * 80}")
+        
+        stats["total_time"] = total_elapsed
+        stats["success"] = True
+        
+        return stats
+    
 if __name__ == '__main__':
     # Exemplo de uso: executar todas as queries em todos os databases
     extractor = SQLQuery()

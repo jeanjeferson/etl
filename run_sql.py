@@ -171,6 +171,125 @@ def upload_to_ftp(data_dir: str = "data", forecast_type: str = "data") -> Dict[s
         }
 
 
+def run_single_database_pipeline(
+    database: str,
+    output_dir: str = "data",
+    verbose: bool = True,
+    upload_ftp: bool = True,
+    forecast_type: str = "data"
+    ) -> Dict[str, Any]:
+    """
+    Executa pipeline de extração de dados SQL para um único database.
+    
+    Args:
+        database: Nome do database para executar as queries
+        output_dir: Diretório base para salvar os arquivos parquet
+        verbose: Exibir logs detalhados
+        upload_ftp: Fazer upload automático para FTP após extração
+        forecast_type: Tipo de dados para FTP (usado se upload_ftp=True)
+        
+    Returns:
+        Dicionário com estatísticas de execução SQL e FTP (se habilitado)
+    """
+    print("=" * 80)
+    print(f"📊 PIPELINE ETL - DATABASE: {database}")
+    print("=" * 80)
+    
+    try:
+        # Instanciar SQLQuery
+        extractor = SQLQuery()
+        extractor.verbose = verbose
+        
+        # Executar queries para o database específico
+        sql_results = extractor.execute_queries_for_database(
+            database=database,
+            output_dir=output_dir
+        )
+        
+        # Verificar se houve sucesso na extração
+        if not sql_results.get('success'):
+            return {
+                'success': False,
+                'database': database,
+                'sql_results': sql_results,
+                'ftp_results': None
+            }
+        
+        # Upload para FTP se habilitado e se houver dados extraídos
+        ftp_results = None
+        if upload_ftp and sql_results.get('successful', 0) > 0:
+            print("\n" + "=" * 80)
+            print("📤 UPLOAD PARA FTP/SFTP")
+            print("=" * 80)
+            
+            try:
+                ftp = ForecastFTPUploader()
+                
+                if not ftp._connect():
+                    print("❌ Falha ao conectar no servidor FTP")
+                    ftp_results = {
+                        'success': False,
+                        'error': 'FTP connection failed'
+                    }
+                else:
+                    print("✅ Conectado ao FTP com sucesso\n")
+                    
+                    # Coletar arquivos parquet do database
+                    db_dir = Path(output_dir) / database
+                    parquet_files = list(db_dir.glob('*.parquet'))
+                    
+                    if parquet_files:
+                        print(f"📄 {len(parquet_files)} arquivos encontrados")
+                        file_paths = [str(f) for f in parquet_files]
+                        
+                        # Upload
+                        result = ftp.upload_data(
+                            database_name=database,
+                            forecast_type=forecast_type,
+                            file_paths=file_paths
+                        )
+                        
+                        ftp_results = {
+                            'success': result['success'],
+                            'uploaded_files': len(result.get('uploaded_files', [])),
+                            'failed_files': len(result.get('failed_files', [])),
+                            'message': result['message']
+                        }
+                        
+                        print(f"{'✅' if result['success'] else '⚠️'} {result['message']}")
+                    else:
+                        ftp_results = {
+                            'success': False,
+                            'error': 'No parquet files found'
+                        }
+                    
+                    ftp.disconnect()
+                    
+            except Exception as e:
+                print(f"❌ Erro no upload FTP: {e}")
+                ftp_results = {
+                    'success': False,
+                    'error': str(e)
+                }
+        
+        return {
+            'success': True,
+            'database': database,
+            'sql_results': sql_results,
+            'ftp_results': ftp_results
+        }
+        
+    except Exception as e:
+        print(f"\n❌ Erro no pipeline: {e}")
+        return {
+            'success': False,
+            'database': database,
+            'error': str(e),
+            'sql_results': None,
+            'ftp_results': None
+        }
+
+
 def print_summary(sql_results: Dict[str, Any], ftp_results: Dict[str, Any] = None):
     """
     Imprime resumo consolidado da execução.

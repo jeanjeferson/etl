@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 import uuid
 
-from run_sql import run_etl_pipeline, upload_to_ftp
+from run_sql import run_etl_pipeline, upload_to_ftp, run_single_database_pipeline
 
 
 # FastAPI app instance
@@ -86,6 +86,57 @@ def execute_pipeline_task(
         
         # Atualizar status para completed
         jobs[job_id]["status"] = "completed"
+        jobs[job_id]["completed_at"] = datetime.now().isoformat()
+        
+    except Exception as e:
+        # Atualizar status para failed
+        jobs[job_id]["status"] = "failed"
+        jobs[job_id]["error"] = str(e)
+        jobs[job_id]["completed_at"] = datetime.now().isoformat()
+
+
+def execute_single_database_task(
+    job_id: str,
+    database: str,
+    output_dir: str,
+    forecast_type: str,
+    verbose: bool,
+    upload_ftp: bool
+):
+    """
+    Executa o pipeline ETL para um único database em background.
+    
+    Args:
+        job_id: ID único do job
+        database: Nome do database
+        output_dir: Diretório para salvar arquivos parquet
+        forecast_type: Tipo de dados para FTP
+        verbose: Exibir logs detalhados
+        upload_ftp: Fazer upload automático para FTP
+    """
+    try:
+        # Atualizar status para running
+        jobs[job_id]["status"] = "running"
+        
+        # Executar pipeline para database específico
+        results = run_single_database_pipeline(
+            database=database,
+            output_dir=output_dir,
+            verbose=verbose,
+            upload_ftp=upload_ftp,
+            forecast_type=forecast_type
+        )
+        
+        jobs[job_id]["sql_results"] = results.get("sql_results")
+        jobs[job_id]["ftp_results"] = results.get("ftp_results")
+        
+        # Atualizar status
+        if results.get("success"):
+            jobs[job_id]["status"] = "completed"
+        else:
+            jobs[job_id]["status"] = "failed"
+            jobs[job_id]["error"] = results.get("error", "Unknown error")
+        
         jobs[job_id]["completed_at"] = datetime.now().isoformat()
         
     except Exception as e:
@@ -215,7 +266,8 @@ async def list_jobs():
             "started_at": job_data["started_at"],
             "completed_at": job_data.get("completed_at"),
             "output_dir": job_data.get("output_dir"),
-            "forecast_type": job_data.get("forecast_type")
+            "forecast_type": job_data.get("forecast_type"),
+            "database": job_data.get("database")
         })
     
     # Ordenar por data de início (mais recente primeiro)
@@ -224,6 +276,65 @@ async def list_jobs():
     return {
         "total_jobs": len(jobs_list),
         "jobs": jobs_list
+    }
+
+
+@app.post("/run-pipeline/{database}", response_model=JobStatus, tags=["Pipeline"])
+async def run_single_database(
+    database: str,
+    background_tasks: BackgroundTasks,
+    output_dir: str = "data",
+    forecast_type: str = "data",
+    verbose: bool = True,
+    upload_ftp: bool = False
+):
+    """
+    Inicia a execução do pipeline ETL para um database específico em background.
+    
+    Args:
+        database: Nome do database para executar as queries
+        output_dir: Diretório base para salvar arquivos parquet (default: "data")
+        forecast_type: Tipo de dados para FTP (default: "data")
+        verbose: Exibir logs detalhados (default: True)
+        upload_ftp: Fazer upload automático para FTP após extração (default: False)
+        
+    Returns:
+        JobStatus com job_id e status inicial
+    """
+    # Gerar job ID único
+    job_id = str(uuid.uuid4())
+    
+    # Criar entrada no storage de jobs
+    jobs[job_id] = {
+        "status": "pending",
+        "started_at": datetime.now().isoformat(),
+        "database": database,
+        "output_dir": output_dir,
+        "forecast_type": forecast_type,
+        "verbose": verbose,
+        "upload_ftp": upload_ftp,
+        "sql_results": None,
+        "ftp_results": None,
+        "error": None,
+        "completed_at": None
+    }
+    
+    # Adicionar tarefa em background
+    background_tasks.add_task(
+        execute_single_database_task,
+        job_id=job_id,
+        database=database,
+        output_dir=output_dir,
+        forecast_type=forecast_type,
+        verbose=verbose,
+        upload_ftp=upload_ftp
+    )
+    
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "message": f"Pipeline ETL para database '{database}' iniciado em background",
+        "started_at": jobs[job_id]["started_at"]
     }
 
 
