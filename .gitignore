@@ -21,11 +21,9 @@ env/
 .env.*.local
 
 # Data and Output Files
-data/
 dataset/
 output/
 logs/
-*.parquet
 *.csv
 *.xlsx
 

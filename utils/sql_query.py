@@ -95,7 +95,7 @@ class SQLQuery:
 
     def _ensure_dataset_dir(self):
         """Garante que a pasta dataset existe."""
-        os.makedirs("dataset", exist_ok=True)
+        os.makedirs("data", exist_ok=True)
 
     def _execute_query(self, database: str, query: str, params: dict = None) -> pd.DataFrame:
         """Executa query em um database específico."""
