@@ -149,19 +149,24 @@ A API estará disponível em `http://localhost:8000`
 
 - `GET /` - Informações da API
 - `GET /health` - Health check
-- `POST /run-pipeline` - Inicia pipeline ETL em background
+- `POST /run-pipeline` - Inicia pipeline ETL completo (todos os databases) em background
+- `POST /run-pipeline/{database}` - Inicia pipeline ETL para um database específico em background
 - `GET /jobs/{job_id}` - Consulta status de um job específico
 - `GET /jobs` - Lista todos os jobs
 - `GET /docs` - Documentação interativa (Swagger UI)
 
-**Exemplo de uso:**
+**Exemplos de uso:**
 
 ```bash
-# Iniciar pipeline
+# Iniciar pipeline completo (todos os databases)
 curl -X POST "http://localhost:8000/run-pipeline?output_dir=data&forecast_type=data&verbose=true"
 # Retorna: {"job_id": "uuid", "status": "pending", ...}
 
-# Consultar status
+# Iniciar pipeline para um database específico
+curl -X POST "http://localhost:8000/run-pipeline/005ATS_ERP_BI?output_dir=data&forecast_type=data&verbose=true&upload_ftp=false"
+# Retorna: {"job_id": "uuid", "status": "pending", ...}
+
+# Consultar status de um job
 curl "http://localhost:8000/jobs/{job_id}"
 
 # Listar todos os jobs
@@ -182,12 +187,41 @@ Isso irá:
 
 ### Executar apenas extração SQL
 
+**Executar queries em todos os databases:**
+
 ```python
 from utils.sql_query import SQLQuery
 
 extractor = SQLQuery()
 extractor.verbose = True
 results = extractor.execute_all_queries(output_base_dir="data")
+```
+
+**Executar queries em um database específico:**
+
+```python
+from utils.sql_query import SQLQuery
+
+extractor = SQLQuery()
+extractor.verbose = True
+results = extractor.execute_queries_for_database(
+    database="005ATS_ERP_BI",
+    output_dir="data"
+)
+```
+
+**Executar pipeline completo para um database (com upload FTP opcional):**
+
+```python
+from run_sql import run_single_database_pipeline
+
+results = run_single_database_pipeline(
+    database="005ATS_ERP_BI",
+    output_dir="data",
+    verbose=True,
+    upload_ftp=True,  # False para apenas extrair dados
+    forecast_type="data"
+)
 ```
 
 ### Executar apenas upload FTP
