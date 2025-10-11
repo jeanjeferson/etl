@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  etl-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: etl-pipeline-api
+    ports:
+      - "8000:8000"
+    volumes:
+      # Monta diretório de dados para persistir arquivos parquet
+      - ./data:/app/data
+      # Monta diretório de logs
+      - ./logs:/app/logs
+      # Monta arquivo de configuração (opcional)
+      - ./config:/app/config:ro
+      # Monta queries SQL (opcional)
+      - ./sql:/app/sql:ro
+    environment:
+      # Configurações do banco de dados SQL Server
+      - DB_DRIVER=${DB_DRIVER:-ODBC Driver 18 for SQL Server}
+      - DB_SERVER=${DB_SERVER}
+      - DB_PORT=${DB_PORT:-1433}
+      - DB_UID=${DB_UID}
+      - DB_PWD=${DB_PWD}
+      # Timezone
+      - TZ=America/Sao_Paulo
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - etl-network
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  etl-network:
+    driver: bridge
+
+volumes:
+  etl-data:
+    driver: local
+

@@ -1,0 +1,38 @@
+# Configuração Simples dos Databases
+# Lista dos databases para extração de dados
+
+databases:
+  # - '001RR_BI'
+  - '005ATS_ERP_BI'
+  - '005NO_ERP_BI'
+  - '005RG_ERP_BI'
+  - '006GF_BI'
+  - '007BE_ERP_BI'
+  - '008GT_BI'
+  - '012ARR_ERP_BI'
+  # - '012CATTO_ERP_BI'
+  - '012DIPUA_ERP_BI'
+  - '013BW_ERP_BI'
+  - '013CRO_ERP_BI'
+  - '014CST_ERP_BI'
+  - '014CST_IJC_BI'
+  - '014PR_ERP_BI'
+  - '014ZI_ERP_BI'
+
+# Configurações de extração
+extraction:
+  default_days_back: 730  # 2 anos
+  output_format: csv
+  separator: ';'
+  encoding: 'utf-8'
+  
+# Parâmetros de treinamento/seleção de SKUs
+training:
+  top_percentage: 30          # Ex.: top 30% por volume de vendas
+  min_sales_threshold: 10     # Volume mínimo para considerar o SKU
+  min_data_points: 10         # Registros mínimos por SKU
+  
+# Configurações de arquivos de saída
+output:
+  volume_suffix: '_volume'     # Sufixo para arquivos de volume
+  base_dir: 'dataset'          # Diretório base para salvar arquivos
