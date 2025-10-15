@@ -374,10 +374,52 @@ class SupabaseUploader:
 
 
 
+def show_menu():
+    """
+    Display interactive menu and get user selection.
+    
+    Returns:
+        str: Selected mode ('upload', 'download', or 'exit')
+    """
+    while True:
+        print("\n" + "=" * 60)
+        print("=== SupabaseUploader - Menu Interativo ===")
+        print("=" * 60)
+        print("🪣 Bucket: 013bw-erp-bi")
+        print("📁 Diretório: data/013BW_ERP_BI")
+        print("📂 Download dir: downloads/013BW_ERP_BI")
+        print()
+        print("Escolha uma opção:")
+        print("1. 📤 Upload arquivos para Supabase")
+        print("2. 📥 Download arquivos do Supabase")
+        print("3. ❌ Sair")
+        print()
+        
+        try:
+            choice = input("Digite sua opção (1-3): ").strip()
+            
+            if choice == "1":
+                return "upload"
+            elif choice == "2":
+                return "download"
+            elif choice == "3":
+                return "exit"
+            else:
+                print("❌ Opção inválida! Digite 1, 2 ou 3.")
+                input("Pressione Enter para continuar...")
+                
+        except KeyboardInterrupt:
+            print("\n\n👋 Operação cancelada pelo usuário.")
+            return "exit"
+        except EOFError:
+            print("\n\n👋 Operação cancelada.")
+            return "exit"
+
+
 if __name__ == "__main__":
     """
     Test script for SupabaseUploader class.
-    Demonstrates both upload and download functionality.
+    Interactive menu for upload and download functionality.
     """ 
     
     # Configuration
@@ -385,105 +427,114 @@ if __name__ == "__main__":
     bucket_name = "013bw-erp-bi"
     download_dir = "downloads/013BW_ERP_BI"
     
-    # Check command line arguments for mode
-    mode = "upload"  # default mode
-    if len(sys.argv) > 1:
-        mode = sys.argv[1].lower()
+    # Show welcome message
+    print("🚀 Bem-vindo ao SupabaseUploader!")
+    print("Este script permite fazer upload e download de arquivos Parquet para/do Supabase.")
     
-    print("=== SupabaseUploader Test Script ===")
-    print(f"🪣 Bucket: {bucket_name}")
-    print(f"📁 Diretório: {directory_path}")
-    print(f"📂 Download dir: {download_dir}")
-    print(f"🔧 Modo: {mode.upper()}")
-    print("=" * 50)
-    
-    try:
-        # Initialize uploader
-        print("🔧 Inicializando SupabaseUploader...")
-        uploader = SupabaseUploader()
-        print("✅ SupabaseUploader inicializado com sucesso!")
-        print()
-        
-        if mode == "upload":
-            # UPLOAD MODE
-            if not os.path.exists(directory_path):
-                print(f"❌ Erro: Diretório {directory_path} não encontrado!")
-                print("Verifique se o diretório existe no caminho especificado.")
-                exit(1)
+    # Main loop
+    while True:
+        try:
+            # Get user selection
+            mode = show_menu()
             
-            print("🚀 Iniciando upload em lote...")
-            result = uploader.upload_directory_parquet(directory_path, bucket_name)
+            if mode == "exit":
+                print("\n👋 Obrigado por usar o SupabaseUploader!")
+                break
             
-            # Final summary
-            print("\n" + "=" * 50)
-            print("🎯 RESULTADO FINAL - UPLOAD")
+            print(f"\n🔧 Modo selecionado: {mode.upper()}")
             print("=" * 50)
             
-            if result["successful_uploads"] > 0:
-                print(f"✅ {result['successful_uploads']} arquivo(s) enviado(s) com sucesso!")
-            
-            if result["failed_uploads"] > 0:
-                print(f"❌ {result['failed_uploads']} arquivo(s) com falha!")
-            
-            if result["total_files"] == 0:
-                print("⚠️  Nenhum arquivo .parquet encontrado no diretório!")
-            
-            print(f"\n📊 Estatísticas:")
-            print(f"   • Total processado: {result['total_files']}")
-            print(f"   • Sucessos: {result['successful_uploads']}")
-            print(f"   • Falhas: {result['failed_uploads']}")
-            
-            # Exit with appropriate code
-            if result["failed_uploads"] > 0:
-                exit(1)
-            else:
-                exit(0)
+            try:
+                # Initialize uploader
+                print("🔧 Inicializando SupabaseUploader...")
+                uploader = SupabaseUploader()
+                print("✅ SupabaseUploader inicializado com sucesso!")
+                print()
                 
-        elif mode == "download":
-            # DOWNLOAD MODE
-            print("📥 Iniciando download em lote...")
-            result = uploader.download_directory_parquet(bucket_name, download_dir)
-            
-            # Final summary
-            print("\n" + "=" * 50)
-            print("🎯 RESULTADO FINAL - DOWNLOAD")
-            print("=" * 50)
-            
-            if result["successful_downloads"] > 0:
-                print(f"✅ {result['successful_downloads']} arquivo(s) baixado(s) com sucesso!")
-            
-            if result["failed_downloads"] > 0:
-                print(f"❌ {result['failed_downloads']} arquivo(s) com falha!")
-            
-            if result["total_files"] == 0:
-                print("⚠️  Nenhum arquivo encontrado no bucket!")
-            
-            print(f"\n📊 Estatísticas:")
-            print(f"   • Total processado: {result['total_files']}")
-            print(f"   • Sucessos: {result['successful_downloads']}")
-            print(f"   • Falhas: {result['failed_downloads']}")
-            print(f"   • Diretório local: {result['local_directory']}")
-            
-            # Exit with appropriate code
-            if result["failed_downloads"] > 0:
-                exit(1)
-            else:
-                exit(0)
+                if mode == "upload":
+                    # UPLOAD MODE
+                    if not os.path.exists(directory_path):
+                        print(f"❌ Erro: Diretório {directory_path} não encontrado!")
+                        print("Verifique se o diretório existe no caminho especificado.")
+                        input("Pressione Enter para continuar...")
+                        continue
+                    
+                    print("🚀 Iniciando upload em lote...")
+                    result = uploader.upload_directory_parquet(directory_path, bucket_name)
+                    
+                    # Final summary
+                    print("\n" + "=" * 50)
+                    print("🎯 RESULTADO FINAL - UPLOAD")
+                    print("=" * 50)
+                    
+                    if result["successful_uploads"] > 0:
+                        print(f"✅ {result['successful_uploads']} arquivo(s) enviado(s) com sucesso!")
+                    
+                    if result["failed_uploads"] > 0:
+                        print(f"❌ {result['failed_uploads']} arquivo(s) com falha!")
+                    
+                    if result["total_files"] == 0:
+                        print("⚠️  Nenhum arquivo .parquet encontrado no diretório!")
+                    
+                    print(f"\n📊 Estatísticas:")
+                    print(f"   • Total processado: {result['total_files']}")
+                    print(f"   • Sucessos: {result['successful_uploads']}")
+                    print(f"   • Falhas: {result['failed_uploads']}")
+                    
+                elif mode == "download":
+                    # DOWNLOAD MODE
+                    print("📥 Iniciando download em lote...")
+                    result = uploader.download_directory_parquet(bucket_name, download_dir)
+                    
+                    # Final summary
+                    print("\n" + "=" * 50)
+                    print("🎯 RESULTADO FINAL - DOWNLOAD")
+                    print("=" * 50)
+                    
+                    if result["successful_downloads"] > 0:
+                        print(f"✅ {result['successful_downloads']} arquivo(s) baixado(s) com sucesso!")
+                    
+                    if result["failed_downloads"] > 0:
+                        print(f"❌ {result['failed_downloads']} arquivo(s) com falha!")
+                    
+                    if result["total_files"] == 0:
+                        print("⚠️  Nenhum arquivo encontrado no bucket!")
+                    
+                    print(f"\n📊 Estatísticas:")
+                    print(f"   • Total processado: {result['total_files']}")
+                    print(f"   • Sucessos: {result['successful_downloads']}")
+                    print(f"   • Falhas: {result['failed_downloads']}")
+                    print(f"   • Diretório local: {result['local_directory']}")
                 
-        else:
-            print(f"❌ Modo inválido: {mode}")
-            print("Modos disponíveis: upload, download")
-            print("\nUso:")
-            print("  python utils/upload_supabase.py upload   # Upload arquivos")
-            print("  python utils/upload_supabase.py download # Download arquivos")
-            exit(1)
-            
-    except Exception as e:
-        print(f"❌ Erro durante o processo: {str(e)}")
-        print("\n💡 Dicas para resolução:")
-        print("- Verifique se as variáveis SUPABASE_URL e SUPABASE_KEY estão configuradas no .env")
-        print("- Certifique-se de que o bucket existe no Supabase")
-        print("- Verifique sua conexão com a internet")
-        print("- Para upload: confirme se o diretório contém arquivos .parquet válidos")
-        print("- Para download: confirme se o bucket contém arquivos")
-        exit(1)
+                # Ask if user wants to continue
+                print("\n" + "=" * 50)
+                try:
+                    continue_choice = input("Deseja realizar outra operação? (s/n): ").strip().lower()
+                    if continue_choice not in ['s', 'sim', 'y', 'yes']:
+                        print("\n👋 Obrigado por usar o SupabaseUploader!")
+                        break
+                except (KeyboardInterrupt, EOFError):
+                    print("\n\n👋 Obrigado por usar o SupabaseUploader!")
+                    break
+                    
+            except Exception as e:
+                print(f"❌ Erro durante o processo: {str(e)}")
+                print("\n💡 Dicas para resolução:")
+                print("- Verifique se as variáveis SUPABASE_URL e SUPABASE_KEY estão configuradas no .env")
+                print("- Certifique-se de que o bucket existe no Supabase")
+                print("- Verifique sua conexão com a internet")
+                print("- Para upload: confirme se o diretório contém arquivos .parquet válidos")
+                print("- Para download: confirme se o bucket contém arquivos")
+                
+                try:
+                    input("Pressione Enter para continuar...")
+                except (KeyboardInterrupt, EOFError):
+                    print("\n\n👋 Obrigado por usar o SupabaseUploader!")
+                    break
+                    
+        except KeyboardInterrupt:
+            print("\n\n👋 Operação cancelada pelo usuário.")
+            break
+        except EOFError:
+            print("\n\n👋 Operação cancelada.")
+            break
