@@ -39,7 +39,9 @@ RUN pip install --no-cache-dir --upgrade pip \
         pyodbc>=5.2.0 \
         paramiko>=4.0.0 \
         fastapi>=0.115.0 \
-        uvicorn[standard]>=0.32.0
+        uvicorn[standard]>=0.32.0 \
+        requests>=2.31.0 \
+        supabase>=2.22.0
 
 # Copia arquivos principais da aplicação
 COPY api.py ./

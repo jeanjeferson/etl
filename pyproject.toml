@@ -15,7 +15,7 @@ dependencies = [
     "uvicorn[standard]>=0.32.0",
     "PySocks>=1.7.1",
     "requests>=2.31.0",
-    "supabase>=2.0.0",
+    "supabase>=2.22.0",
 ]
 
 [project.optional-dependencies]

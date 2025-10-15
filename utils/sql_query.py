@@ -421,7 +421,9 @@ if __name__ == '__main__':
     extractor.verbose = True
     
     # Executar todas as queries e salvar como parquet
-    results = extractor.execute_all_queries(output_base_dir="data")
+    # results = extractor.execute_all_queries(output_base_dir="data")
+
+    results = extractor.execute_queries_for_database(database="013BW_ERP_BI", output_dir="data")
     
     print("\n✅ Execução concluída!")
     print(f"Total de execuções bem-sucedidas: {results.get('successful', 0)}")
