@@ -49,7 +49,7 @@ class HealthCheck(BaseModel):
 
 
 class SupabaseUploadRequest(BaseModel):
-    bucket_name: Optional[str] = Field(None, description="Nome do bucket Supabase (default: nome do database)")
+    bucket_name: Optional[str] = Field(None, description="Nome do bucket Supabase (default: 013bw-erp-bi )")
     output_dir: str = Field("data", description="Diretório base contendo os arquivos parquet")
 
 
@@ -63,7 +63,7 @@ class SupabaseUploadResponse(BaseModel):
 
 
 class SupabasePipelineRequest(BaseModel):
-    bucket_name: Optional[str] = Field(None, description="Nome do bucket Supabase (default: nome do database)")
+    bucket_name: Optional[str] = Field(None, description="Nome do bucket Supabase (default: 013bw-erp-bi )")
     verbose: bool = Field(True, description="Exibir logs detalhados")
     temp_dir: str = Field("temp", description="Diretório temporário para processamento")
 

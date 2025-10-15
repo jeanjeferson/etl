@@ -60,7 +60,7 @@ RUN mkdir -p ./data ./logs ./temp \
 EXPOSE 8000
 
 # Healthcheck
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=40s \
+HEALTHCHECK --interval=24h --timeout=10s --retries=3 --start-period=40s \
     CMD curl --fail http://localhost:8000/health || exit 1
 
 # Run FastAPI server com Uvicorn
