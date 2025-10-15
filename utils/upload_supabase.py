@@ -6,11 +6,11 @@ to/from Supabase storage buckets.
 """
 
 import os
+import sys
 from typing import Optional, Union
 import pandas as pd
 from dotenv import load_dotenv
 from supabase import create_client, Client
-
 
 class SupabaseUploader:
     """
@@ -247,30 +247,155 @@ class SupabaseUploader:
             "successful_files": successful_files,
             "failed_files": failed_files
         }
+    
+    def download_directory_parquet(self, bucket_name: str, local_directory: str, file_filter: str = "*") -> dict:
+        """
+        Download all Parquet files from a Supabase storage bucket to a local directory.
+        
+        Args:
+            bucket_name: Name of the Supabase storage bucket
+            local_directory: Local directory to save downloaded files
+            file_filter: Filter pattern for files (default: "*" for all files)
+            
+        Returns:
+            dict: Summary with success count, failure count, and details
+        """
+        try:
+            # List all files in the bucket
+            files_in_bucket = self.list_files(bucket_name)
+            
+            if not files_in_bucket:
+                print(f"❌ Nenhum arquivo encontrado no bucket {bucket_name}")
+                return {
+                    "total_files": 0,
+                    "successful_downloads": 0,
+                    "failed_downloads": 0,
+                    "successful_files": [],
+                    "failed_files": [],
+                    "local_directory": local_directory
+                }
+            
+            # Filter files if needed
+            if file_filter != "*":
+                import fnmatch
+                files_in_bucket = [f for f in files_in_bucket if fnmatch.fnmatch(f.get('name', ''), file_filter)]
+            
+            if not files_in_bucket:
+                print(f"❌ Nenhum arquivo correspondente ao filtro '{file_filter}' encontrado no bucket {bucket_name}")
+                return {
+                    "total_files": 0,
+                    "successful_downloads": 0,
+                    "failed_downloads": 0,
+                    "successful_files": [],
+                    "failed_files": [],
+                    "local_directory": local_directory
+                }
+            
+            print(f"📁 Encontrados {len(files_in_bucket)} arquivo(s) no bucket {bucket_name}")
+            print(f"📂 Diretório local: {local_directory}")
+            print("=" * 60)
+            
+            # Create local directory if it doesn't exist
+            os.makedirs(local_directory, exist_ok=True)
+            
+            # Initialize counters
+            successful_downloads = 0
+            failed_downloads = 0
+            successful_files = []
+            failed_files = []
+            
+            # Process each file
+            for i, file_info in enumerate(files_in_bucket, 1):
+                file_name = file_info.get('name', '')
+                print(f"📥 [{i}/{len(files_in_bucket)}] Baixando: {file_name}")
+                
+                try:
+                    # Construct local file path
+                    local_file_path = os.path.join(local_directory, file_name)
+                    
+                    # Download file
+                    df = self.download_parquet(bucket_name, file_name, local_file_path)
+                    
+                    if df is not None:
+                        successful_downloads += 1
+                        successful_files.append(file_name)
+                        print(f"   ✅ {file_name} - Download realizado com sucesso")
+                    else:
+                        failed_downloads += 1
+                        failed_files.append(file_name)
+                        print(f"   ❌ {file_name} - Falha no download")
+                        
+                except Exception as e:
+                    failed_downloads += 1
+                    failed_files.append(file_name)
+                    print(f"   ❌ {file_name} - Erro: {str(e)}")
+                
+                print()  # Empty line for readability
+            
+            # Print summary
+            print("=" * 60)
+            print("📊 RESUMO DO DOWNLOAD")
+            print("=" * 60)
+            print(f"📁 Total de arquivos: {len(files_in_bucket)}")
+            print(f"✅ Downloads bem-sucedidos: {successful_downloads}")
+            print(f"❌ Downloads com falha: {failed_downloads}")
+            print(f"📂 Diretório local: {local_directory}")
+            
+            if successful_files:
+                print(f"\n✅ Arquivos baixados com sucesso:")
+                for file_name in successful_files:
+                    print(f"   • {file_name}")
+            
+            if failed_files:
+                print(f"\n❌ Arquivos com falha:")
+                for file_name in failed_files:
+                    print(f"   • {file_name}")
+            
+            return {
+                "total_files": len(files_in_bucket),
+                "successful_downloads": successful_downloads,
+                "failed_downloads": failed_downloads,
+                "successful_files": successful_files,
+                "failed_files": failed_files,
+                "local_directory": local_directory
+            }
+            
+        except Exception as e:
+            print(f"❌ Erro durante o download em lote: {str(e)}")
+            return {
+                "total_files": 0,
+                "successful_downloads": 0,
+                "failed_downloads": 0,
+                "successful_files": [],
+                "failed_files": [],
+                "local_directory": local_directory,
+                "error": str(e)
+            }
 
 
 
 if __name__ == "__main__":
     """
     Test script for SupabaseUploader class.
-    Uploads all Parquet files from the 013BW_ERP_BI directory.
-    """
-    import os
+    Demonstrates both upload and download functionality.
+    """ 
     
-    # Directory and bucket configuration
+    # Configuration
     directory_path = "data/013BW_ERP_BI"
     bucket_name = "013bw-erp-bi"
+    download_dir = "downloads/013BW_ERP_BI"
     
-    print("=== Upload em Lote - Supabase ===")
-    print(f"📁 Diretório: {directory_path}")
+    # Check command line arguments for mode
+    mode = "upload"  # default mode
+    if len(sys.argv) > 1:
+        mode = sys.argv[1].lower()
+    
+    print("=== SupabaseUploader Test Script ===")
     print(f"🪣 Bucket: {bucket_name}")
+    print(f"📁 Diretório: {directory_path}")
+    print(f"📂 Download dir: {download_dir}")
+    print(f"🔧 Modo: {mode.upper()}")
     print("=" * 50)
-    
-    # Check if directory exists
-    if not os.path.exists(directory_path):
-        print(f"❌ Erro: Diretório {directory_path} não encontrado!")
-        print("Verifique se o diretório existe no caminho especificado.")
-        exit(1)
     
     try:
         # Initialize uploader
@@ -279,40 +404,86 @@ if __name__ == "__main__":
         print("✅ SupabaseUploader inicializado com sucesso!")
         print()
         
-        # Upload all files in directory
-        print("🚀 Iniciando upload em lote...")
-        result = uploader.upload_directory_parquet(directory_path, bucket_name)
-        
-        # Final summary
-        print("\n" + "=" * 50)
-        print("🎯 RESULTADO FINAL")
-        print("=" * 50)
-        
-        if result["successful_uploads"] > 0:
-            print(f"✅ {result['successful_uploads']} arquivo(s) enviado(s) com sucesso!")
-        
-        if result["failed_uploads"] > 0:
-            print(f"❌ {result['failed_uploads']} arquivo(s) com falha!")
-        
-        if result["total_files"] == 0:
-            print("⚠️  Nenhum arquivo .parquet encontrado no diretório!")
-        
-        print(f"\n📊 Estatísticas:")
-        print(f"   • Total processado: {result['total_files']}")
-        print(f"   • Sucessos: {result['successful_uploads']}")
-        print(f"   • Falhas: {result['failed_uploads']}")
-        
-        # Exit with appropriate code
-        if result["failed_uploads"] > 0:
-            exit(1)  # Exit with error if any uploads failed
+        if mode == "upload":
+            # UPLOAD MODE
+            if not os.path.exists(directory_path):
+                print(f"❌ Erro: Diretório {directory_path} não encontrado!")
+                print("Verifique se o diretório existe no caminho especificado.")
+                exit(1)
+            
+            print("🚀 Iniciando upload em lote...")
+            result = uploader.upload_directory_parquet(directory_path, bucket_name)
+            
+            # Final summary
+            print("\n" + "=" * 50)
+            print("🎯 RESULTADO FINAL - UPLOAD")
+            print("=" * 50)
+            
+            if result["successful_uploads"] > 0:
+                print(f"✅ {result['successful_uploads']} arquivo(s) enviado(s) com sucesso!")
+            
+            if result["failed_uploads"] > 0:
+                print(f"❌ {result['failed_uploads']} arquivo(s) com falha!")
+            
+            if result["total_files"] == 0:
+                print("⚠️  Nenhum arquivo .parquet encontrado no diretório!")
+            
+            print(f"\n📊 Estatísticas:")
+            print(f"   • Total processado: {result['total_files']}")
+            print(f"   • Sucessos: {result['successful_uploads']}")
+            print(f"   • Falhas: {result['failed_uploads']}")
+            
+            # Exit with appropriate code
+            if result["failed_uploads"] > 0:
+                exit(1)
+            else:
+                exit(0)
+                
+        elif mode == "download":
+            # DOWNLOAD MODE
+            print("📥 Iniciando download em lote...")
+            result = uploader.download_directory_parquet(bucket_name, download_dir)
+            
+            # Final summary
+            print("\n" + "=" * 50)
+            print("🎯 RESULTADO FINAL - DOWNLOAD")
+            print("=" * 50)
+            
+            if result["successful_downloads"] > 0:
+                print(f"✅ {result['successful_downloads']} arquivo(s) baixado(s) com sucesso!")
+            
+            if result["failed_downloads"] > 0:
+                print(f"❌ {result['failed_downloads']} arquivo(s) com falha!")
+            
+            if result["total_files"] == 0:
+                print("⚠️  Nenhum arquivo encontrado no bucket!")
+            
+            print(f"\n📊 Estatísticas:")
+            print(f"   • Total processado: {result['total_files']}")
+            print(f"   • Sucessos: {result['successful_downloads']}")
+            print(f"   • Falhas: {result['failed_downloads']}")
+            print(f"   • Diretório local: {result['local_directory']}")
+            
+            # Exit with appropriate code
+            if result["failed_downloads"] > 0:
+                exit(1)
+            else:
+                exit(0)
+                
         else:
-            exit(0)  # Exit successfully if all uploads succeeded
+            print(f"❌ Modo inválido: {mode}")
+            print("Modos disponíveis: upload, download")
+            print("\nUso:")
+            print("  python utils/upload_supabase.py upload   # Upload arquivos")
+            print("  python utils/upload_supabase.py download # Download arquivos")
+            exit(1)
             
     except Exception as e:
         print(f"❌ Erro durante o processo: {str(e)}")
         print("\n💡 Dicas para resolução:")
         print("- Verifique se as variáveis SUPABASE_URL e SUPABASE_KEY estão configuradas no .env")
-        print("- Certifique-se de que o bucket '013bw-erp-bi' existe no Supabase")
+        print("- Certifique-se de que o bucket existe no Supabase")
         print("- Verifique sua conexão com a internet")
-        print("- Confirme se o diretório contém arquivos .parquet válidos")
+        print("- Para upload: confirme se o diretório contém arquivos .parquet válidos")
+        print("- Para download: confirme se o bucket contém arquivos")
         exit(1)
