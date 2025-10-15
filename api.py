@@ -10,6 +10,7 @@ from datetime import datetime
 import uuid
 
 from run_sql import run_etl_pipeline, upload_to_ftp, run_single_database_pipeline
+from utils.upload_supabase import SupabaseUploader
 
 
 # FastAPI app instance
@@ -17,7 +18,7 @@ app = FastAPI(
     title="ETL Pipeline API",
     description="API para executar pipeline de extração SQL e upload FTP de forma assíncrona",
     version="1.0.0"
-)
+    )
 
 
 # In-memory job storage
@@ -47,13 +48,27 @@ class HealthCheck(BaseModel):
     service: str
 
 
+class SupabaseUploadRequest(BaseModel):
+    bucket_name: Optional[str] = Field(None, description="Nome do bucket Supabase (default: nome do database)")
+    output_dir: str = Field("data", description="Diretório base contendo os arquivos parquet")
+
+
+class SupabaseUploadResponse(BaseModel):
+    job_id: str
+    status: str
+    message: str
+    started_at: str
+    database: str
+    bucket_name: str
+
+
 # Background task function
 def execute_pipeline_task(
     job_id: str,
     output_dir: str,
     forecast_type: str,
     verbose: bool
-):
+    ):
     """
     Executa o pipeline ETL em background e atualiza o status do job.
     
@@ -102,7 +117,7 @@ def execute_single_database_task(
     forecast_type: str,
     verbose: bool,
     upload_ftp: bool
-):
+    ):
     """
     Executa o pipeline ETL para um único database em background.
     
@@ -146,6 +161,56 @@ def execute_single_database_task(
         jobs[job_id]["completed_at"] = datetime.now().isoformat()
 
 
+def execute_supabase_upload_task(
+    job_id: str,
+    database: str,
+    bucket_name: str,
+    output_dir: str
+    ):
+    """
+    Executa o upload de arquivos Parquet para Supabase em background.
+    
+    Args:
+        job_id: ID único do job
+        database: Nome do database
+        bucket_name: Nome do bucket Supabase
+        output_dir: Diretório base contendo os arquivos parquet
+    """
+    try:
+        # Atualizar status para running
+        jobs[job_id]["status"] = "running"
+        
+        # Construir caminho do diretório do database
+        database_dir = f"{output_dir}/{database}"
+        
+        # Inicializar SupabaseUploader
+        uploader = SupabaseUploader()
+        
+        # Executar upload em lote
+        upload_results = uploader.upload_directory_parquet(
+            directory_path=database_dir,
+            bucket_name=bucket_name
+        )
+        
+        # Armazenar resultados
+        jobs[job_id]["supabase_results"] = upload_results
+        
+        # Atualizar status baseado nos resultados
+        if upload_results["failed_uploads"] == 0:
+            jobs[job_id]["status"] = "completed"
+        else:
+            jobs[job_id]["status"] = "completed"  # Ainda considera completo, mas com falhas
+            jobs[job_id]["error"] = f"{upload_results['failed_uploads']} arquivo(s) falharam no upload"
+        
+        jobs[job_id]["completed_at"] = datetime.now().isoformat()
+        
+    except Exception as e:
+        # Atualizar status para failed
+        jobs[job_id]["status"] = "failed"
+        jobs[job_id]["error"] = str(e)
+        jobs[job_id]["completed_at"] = datetime.now().isoformat()
+
+
 # Endpoints
 @app.get("/", tags=["Root"])
 async def root():
@@ -175,7 +240,7 @@ async def run_pipeline(
     output_dir: str = "data",
     forecast_type: str = "data",
     verbose: bool = True
-):
+    ):
     """
     Inicia a execução do pipeline ETL em background.
     
@@ -246,6 +311,7 @@ async def get_job_status(job_id: str):
         "completed_at": job_data.get("completed_at"),
         "sql_results": job_data.get("sql_results"),
         "ftp_results": job_data.get("ftp_results"),
+        "supabase_results": job_data.get("supabase_results"),
         "error": job_data.get("error")
     }
 
@@ -265,9 +331,10 @@ async def list_jobs():
             "status": job_data["status"],
             "started_at": job_data["started_at"],
             "completed_at": job_data.get("completed_at"),
-            "output_dir": job_data.get("output_dir"),
-            "forecast_type": job_data.get("forecast_type"),
-            "database": job_data.get("database")
+        "output_dir": job_data.get("output_dir"),
+        "forecast_type": job_data.get("forecast_type"),
+        "database": job_data.get("database"),
+        "bucket_name": job_data.get("bucket_name")
         })
     
     # Ordenar por data de início (mais recente primeiro)
@@ -287,7 +354,7 @@ async def run_single_database(
     forecast_type: str = "data",
     verbose: bool = True,
     upload_ftp: bool = False
-):
+    ):
     """
     Inicia a execução do pipeline ETL para um database específico em background.
     
@@ -335,6 +402,60 @@ async def run_single_database(
         "status": "pending",
         "message": f"Pipeline ETL para database '{database}' iniciado em background",
         "started_at": jobs[job_id]["started_at"]
+    }
+
+
+@app.post("/upload-supabase/{database}", response_model=SupabaseUploadResponse, tags=["Supabase"])
+async def upload_to_supabase(
+    database: str,
+    request: SupabaseUploadRequest,
+    background_tasks: BackgroundTasks
+    ):
+    """
+    Inicia o upload de arquivos Parquet de um database para Supabase em background.
+    
+    Args:
+        database: Nome do database (diretório contendo os arquivos parquet)
+        request: Parâmetros de configuração do upload
+        background_tasks: Tarefas em background do FastAPI
+        
+    Returns:
+        SupabaseUploadResponse com informações do job iniciado
+    """
+    # Determinar nome do bucket (usa database se não especificado)
+    bucket_name = request.bucket_name or database.lower().replace("_", "-")
+    
+    # Gerar job ID único
+    job_id = str(uuid.uuid4())
+    
+    # Criar entrada no storage de jobs
+    jobs[job_id] = {
+        "status": "pending",
+        "started_at": datetime.now().isoformat(),
+        "database": database,
+        "bucket_name": bucket_name,
+        "output_dir": request.output_dir,
+        "supabase_results": None,
+        "error": None,
+        "completed_at": None
+    }
+    
+    # Adicionar tarefa em background
+    background_tasks.add_task(
+        execute_supabase_upload_task,
+        job_id=job_id,
+        database=database,
+        bucket_name=bucket_name,
+        output_dir=request.output_dir
+    )
+    
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "message": f"Upload para Supabase do database '{database}' iniciado em background",
+        "started_at": jobs[job_id]["started_at"],
+        "database": database,
+        "bucket_name": bucket_name
     }
 
 
