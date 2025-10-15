@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 import uuid
 
-from run_sql import run_etl_pipeline, upload_to_ftp, run_single_database_pipeline
+from run_sql import run_etl_pipeline, upload_to_ftp, run_single_database_pipeline, run_single_database_supabase_pipeline
 from utils.upload_supabase import SupabaseUploader
 
 
@@ -54,6 +54,21 @@ class SupabaseUploadRequest(BaseModel):
 
 
 class SupabaseUploadResponse(BaseModel):
+    job_id: str
+    status: str
+    message: str
+    started_at: str
+    database: str
+    bucket_name: str
+
+
+class SupabasePipelineRequest(BaseModel):
+    bucket_name: Optional[str] = Field(None, description="Nome do bucket Supabase (default: nome do database)")
+    verbose: bool = Field(True, description="Exibir logs detalhados")
+    temp_dir: str = Field("temp", description="Diretório temporário para processamento")
+
+
+class SupabasePipelineResponse(BaseModel):
     job_id: str
     status: str
     message: str
@@ -201,6 +216,54 @@ def execute_supabase_upload_task(
         else:
             jobs[job_id]["status"] = "completed"  # Ainda considera completo, mas com falhas
             jobs[job_id]["error"] = f"{upload_results['failed_uploads']} arquivo(s) falharam no upload"
+        
+        jobs[job_id]["completed_at"] = datetime.now().isoformat()
+        
+    except Exception as e:
+        # Atualizar status para failed
+        jobs[job_id]["status"] = "failed"
+        jobs[job_id]["error"] = str(e)
+        jobs[job_id]["completed_at"] = datetime.now().isoformat()
+
+
+def execute_supabase_pipeline_task(
+    job_id: str,
+    database: str,
+    bucket_name: str,
+    verbose: bool,
+    temp_dir: str
+    ):
+    """
+    Executa o pipeline ETL Supabase para um database específico em background.
+    
+    Args:
+        job_id: ID único do job
+        database: Nome do database
+        bucket_name: Nome do bucket Supabase
+        verbose: Exibir logs detalhados
+        temp_dir: Diretório temporário para processamento
+    """
+    try:
+        # Atualizar status para running
+        jobs[job_id]["status"] = "running"
+        
+        # Executar pipeline Supabase
+        results = run_single_database_supabase_pipeline(
+            database=database,
+            bucket_name=bucket_name,
+            verbose=verbose,
+            temp_dir=temp_dir
+        )
+        
+        jobs[job_id]["sql_results"] = results.get("sql_results")
+        jobs[job_id]["supabase_results"] = results.get("supabase_results")
+        
+        # Atualizar status baseado nos resultados
+        if results.get("success"):
+            jobs[job_id]["status"] = "completed"
+        else:
+            jobs[job_id]["status"] = "failed"
+            jobs[job_id]["error"] = results.get("error", "Unknown error")
         
         jobs[job_id]["completed_at"] = datetime.now().isoformat()
         
@@ -453,6 +516,63 @@ async def upload_to_supabase(
         "job_id": job_id,
         "status": "pending",
         "message": f"Upload para Supabase do database '{database}' iniciado em background",
+        "started_at": jobs[job_id]["started_at"],
+        "database": database,
+        "bucket_name": bucket_name
+    }
+
+
+@app.post("/run-supabase-pipeline/{database}", response_model=SupabasePipelineResponse, tags=["Supabase"])
+async def run_supabase_pipeline(
+    database: str,
+    request: SupabasePipelineRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    Inicia a execução do pipeline ETL Supabase para um database específico em background.
+    
+    Args:
+        database: Nome do database para executar as queries
+        request: Parâmetros de configuração do pipeline
+        background_tasks: Tarefas em background do FastAPI
+        
+    Returns:
+        SupabasePipelineResponse com informações do job iniciado
+    """
+    # Determinar nome do bucket (usa database se não especificado)
+    bucket_name = request.bucket_name or database.lower().replace("_", "-")
+    
+    # Gerar job ID único
+    job_id = str(uuid.uuid4())
+    
+    # Criar entrada no storage de jobs
+    jobs[job_id] = {
+        "status": "pending",
+        "started_at": datetime.now().isoformat(),
+        "database": database,
+        "bucket_name": bucket_name,
+        "verbose": request.verbose,
+        "temp_dir": request.temp_dir,
+        "sql_results": None,
+        "supabase_results": None,
+        "error": None,
+        "completed_at": None
+    }
+    
+    # Adicionar tarefa em background
+    background_tasks.add_task(
+        execute_supabase_pipeline_task,
+        job_id=job_id,
+        database=database,
+        bucket_name=bucket_name,
+        verbose=request.verbose,
+        temp_dir=request.temp_dir
+    )
+    
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "message": f"Pipeline ETL Supabase para database '{database}' iniciado em background",
         "started_at": jobs[job_id]["started_at"],
         "database": database,
         "bucket_name": bucket_name

@@ -5,9 +5,12 @@ Executa queries SQL e faz upload dos resultados para FTP/SFTP
 
 from utils.sql_query import SQLQuery
 from utils.ftp_uploader import ForecastFTPUploader
+from utils.upload_supabase import SupabaseUploader
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import time
+import tempfile
+import shutil
 
 
 def run_etl_pipeline(output_dir: str = "data", verbose: bool = True) -> Dict[str, Any]:
@@ -290,6 +293,176 @@ def run_single_database_pipeline(
         }
 
 
+def run_single_database_supabase_pipeline(
+    database: str,
+    bucket_name: Optional[str] = None,
+    verbose: bool = True,
+    temp_dir: str = "temp"
+    ) -> Dict[str, Any]:
+    """
+    Executa pipeline de extração de dados SQL para um único database e faz upload direto para Supabase.
+    
+    Args:
+        database: Nome do database para executar as queries
+        bucket_name: Nome do bucket Supabase (default: nome do database)
+        verbose: Exibir logs detalhados
+        temp_dir: Diretório temporário para processamento (default: "temp")
+        
+    Returns:
+        Dicionário com estatísticas de execução SQL e Supabase
+    """
+    print("=" * 80)
+    print(f"📊 PIPELINE ETL SUPABASE - DATABASE: {database}")
+    print("=" * 80)
+    
+    # Determinar nome do bucket
+    if bucket_name is None:
+        bucket_name = database.lower().replace("_", "-")
+    
+    temp_path = None
+    supabase_results = None
+    
+    try:
+        # Instanciar SQLQuery
+        extractor = SQLQuery()
+        extractor.verbose = verbose
+        
+        # Executar queries para o database específico
+        sql_results = extractor.execute_queries_for_database(
+            database=database,
+            output_dir=temp_dir
+        )
+        
+        # Verificar se houve sucesso na extração
+        if not sql_results.get('success'):
+            return {
+                'success': False,
+                'database': database,
+                'bucket_name': bucket_name,
+                'sql_results': sql_results,
+                'supabase_results': None
+            }
+        
+        # Verificar se há dados extraídos
+        if sql_results.get('successful', 0) == 0:
+            print("⚠️  Nenhum dado extraído com sucesso. Pulando upload para Supabase.")
+            return {
+                'success': True,
+                'database': database,
+                'bucket_name': bucket_name,
+                'sql_results': sql_results,
+                'supabase_results': {
+                    'success': False,
+                    'error': 'No data extracted successfully'
+                }
+            }
+        
+        # Criar diretório temporário para o database
+        temp_path = Path(temp_dir) / database
+        
+        if not temp_path.exists():
+            print(f"❌ Diretório temporário {temp_path} não encontrado após extração SQL")
+            return {
+                'success': False,
+                'database': database,
+                'bucket_name': bucket_name,
+                'sql_results': sql_results,
+                'supabase_results': {
+                    'success': False,
+                    'error': 'Temporary directory not found after SQL extraction'
+                }
+            }
+        
+        # Verificar se há arquivos Parquet no diretório temporário
+        parquet_files = list(temp_path.glob('*.parquet'))
+        if not parquet_files:
+            print(f"⚠️  Nenhum arquivo Parquet encontrado em {temp_path}")
+            return {
+                'success': True,
+                'database': database,
+                'bucket_name': bucket_name,
+                'sql_results': sql_results,
+                'supabase_results': {
+                    'success': False,
+                    'error': 'No parquet files found in temporary directory'
+                }
+            }
+        
+        print(f"📄 {len(parquet_files)} arquivos Parquet encontrados para upload")
+        
+        # Upload para Supabase
+        print("\n" + "=" * 80)
+        print("📤 UPLOAD PARA SUPABASE")
+        print("=" * 80)
+        
+        try:
+            # Inicializar SupabaseUploader
+            uploader = SupabaseUploader()
+            
+            # Fazer upload em lote
+            supabase_results = uploader.upload_directory_parquet(
+                directory_path=str(temp_path),
+                bucket_name=bucket_name
+            )
+            
+            # Adicionar informações adicionais aos resultados
+            supabase_results['success'] = supabase_results.get('failed_uploads', 0) == 0
+            supabase_results['database'] = database
+            supabase_results['bucket_name'] = bucket_name
+            
+            if supabase_results['success']:
+                print(f"✅ Upload para Supabase concluído com sucesso!")
+                print(f"   📁 Bucket: {bucket_name}")
+                print(f"   📊 Arquivos enviados: {supabase_results['successful_uploads']}")
+            else:
+                print(f"⚠️  Upload para Supabase concluído com algumas falhas")
+                print(f"   📁 Bucket: {bucket_name}")
+                print(f"   ✅ Sucessos: {supabase_results['successful_uploads']}")
+                print(f"   ❌ Falhas: {supabase_results['failed_uploads']}")
+                
+        except Exception as e:
+            print(f"❌ Erro no upload para Supabase: {e}")
+            supabase_results = {
+                'success': False,
+                'error': str(e),
+                'database': database,
+                'bucket_name': bucket_name,
+                'total_files': 0,
+                'successful_uploads': 0,
+                'failed_uploads': 0
+            }
+        
+        return {
+            'success': True,
+            'database': database,
+            'bucket_name': bucket_name,
+            'sql_results': sql_results,
+            'supabase_results': supabase_results
+        }
+        
+    except Exception as e:
+        print(f"\n❌ Erro no pipeline Supabase: {e}")
+        return {
+            'success': False,
+            'database': database,
+            'bucket_name': bucket_name,
+            'error': str(e),
+            'sql_results': None,
+            'supabase_results': None
+        }
+    
+    finally:
+        # Limpeza: remover diretório temporário se foi criado
+        if temp_path and temp_path.exists():
+            try:
+                shutil.rmtree(temp_path)
+                if verbose:
+                    print(f"🧹 Diretório temporário {temp_path} removido com sucesso")
+            except Exception as e:
+                if verbose:
+                    print(f"⚠️  Aviso: Não foi possível remover diretório temporário {temp_path}: {e}")
+
+
 def print_summary(sql_results: Dict[str, Any], ftp_results: Dict[str, Any] = None):
     """
     Imprime resumo consolidado da execução.
@@ -349,37 +522,64 @@ def print_summary(sql_results: Dict[str, Any], ftp_results: Dict[str, Any] = Non
 
 
 if __name__ == '__main__':
-    """
-    Execução principal do pipeline ETL:
-    1. Extração de dados SQL
-    2. Upload para FTP/SFTP
-    3. Resumo consolidado
-    """
-    start_time = time.perf_counter()
+    # """
+    # Execução principal do pipeline ETL:
+    # 1. Extração de dados SQL
+    # 2. Upload para FTP/SFTP
+    # 3. Resumo consolidado
     
-    print("\n🚀 INICIANDO PIPELINE ETL")
-    print(f"⏰ Início: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+    # Para testar o pipeline Supabase, descomente as linhas abaixo:
+    # """
+    # start_time = time.perf_counter()
     
-    # FASE 1: Extração de Dados SQL
-    sql_results = run_etl_pipeline(
-        output_dir="data",
-        verbose=True
+    # print("\n🚀 INICIANDO PIPELINE ETL")
+    # print(f"⏰ Início: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+    
+    # # FASE 1: Extração de Dados SQL
+    # sql_results = run_etl_pipeline(
+    #     output_dir="data",
+    #     verbose=True
+    # )
+    
+    # # FASE 2: Upload para FTP (apenas se houver dados extraídos com sucesso)
+    # ftp_results = None
+    # if sql_results.get('successful', 0) > 0:
+    #     ftp_results = upload_to_ftp(
+    #         data_dir="data",
+    #         forecast_type="data"
+    #     )
+    # else:
+    #     print("\n⚠️  Nenhum dado extraído com sucesso. Pulando upload para FTP.")
+    
+    # # FASE 3: Resumo Final
+    # total_time = time.perf_counter() - start_time
+    # print_summary(sql_results, ftp_results)
+    
+    # print(f"⏱️  Tempo total de execução: {total_time:.2f}s")
+    # print(f"⏰ Término: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+    
+    # EXEMPLO DE USO DO PIPELINE SUPABASE (descomente para testar)
+    print("\n" + "="*80)
+    print("🧪 TESTE DO PIPELINE SUPABASE")
+    print("="*80)
+    
+    # Testar pipeline Supabase para um database específico
+    supabase_result = run_single_database_supabase_pipeline(
+        database="013BW_ERP_BI",
+        bucket_name="013bw-erp-bi",
+        verbose=True,
+        temp_dir="temp"
     )
     
-    # FASE 2: Upload para FTP (apenas se houver dados extraídos com sucesso)
-    ftp_results = None
-    if sql_results.get('successful', 0) > 0:
-        ftp_results = upload_to_ftp(
-            data_dir="data",
-            forecast_type="data"
-        )
-    else:
-        print("\n⚠️  Nenhum dado extraído com sucesso. Pulando upload para FTP.")
+    print("\n📊 RESULTADO PIPELINE SUPABASE:")
+    print(f"   ✅ Sucesso: {supabase_result['success']}")
+    print(f"   📁 Database: {supabase_result['database']}")
+    print(f"   🪣 Bucket: {supabase_result['bucket_name']}")
     
-    # FASE 3: Resumo Final
-    total_time = time.perf_counter() - start_time
-    print_summary(sql_results, ftp_results)
+    if supabase_result['supabase_results']:
+        sb_results = supabase_result['supabase_results']
+        print(f"   📊 Arquivos enviados: {sb_results.get('successful_uploads', 0)}")
+        print(f"   ❌ Falhas: {sb_results.get('failed_uploads', 0)}")
     
-    print(f"⏱️  Tempo total de execução: {total_time:.2f}s")
-    print(f"⏰ Término: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+    print("="*80)
 

@@ -7,7 +7,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     TZ=America/Sao_Paulo
 
-# Dependências de sistema para Python packages e SQL Server
+# Dependências de sistema para Python packages, SQL Server e Supabase
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
@@ -53,7 +53,7 @@ COPY config ./config
 COPY sql ./sql
 
 # Cria diretórios necessários para runtime
-RUN mkdir -p ./data ./logs \
+RUN mkdir -p ./data ./logs ./temp \
     && chmod -R 755 /app
 
 # Expor porta da API
